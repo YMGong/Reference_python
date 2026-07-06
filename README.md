@@ -14,6 +14,22 @@ The original document is not modified.
 
 ---
 
+## Build Command
+
+To rebuild the portable executable:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
+python -m PyInstaller --onefile --noconsole ReferenceChecker.py
+```
+
+The executable will be created in:
+
+```text
+dist/ReferenceChecker.exe
+```
+
 ## What the Tool Checks
 
 The checker reviews:
@@ -170,20 +186,6 @@ It also ignores references to figures, tables, sections, equations, boxes, annex
 The tool does not require administrator rights.
 
 ---
-
-## Build Command
-
-To rebuild the portable executable:
-
-```bash
-python -m PyInstaller --onefile --noconsole ReferenceChecker.py
-```
-
-The executable will be created in:
-
-```text
-dist/ReferenceChecker.exe
-```
 
 ---
 
