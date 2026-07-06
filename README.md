@@ -72,27 +72,8 @@ OriginalFile_checked.docx
 
 This checked file contains:
 
-- highlights
 - Word comments
 - issue descriptions directly in the document
-
----
-
-## Meaning of Highlights
-
-### Yellow Highlight
-
-A yellow highlight marks a Zotero consistency issue, such as:
-
-- broken linked Zotero citation
-- citation from an unexpected library
-- bibliography entry not cited in the text
-
-### Blue Highlight
-
-A blue highlight marks a bibliography item that has neither DOI nor URL in Zotero.
-
-This is a metadata warning, not always an error.
 
 ---
 
