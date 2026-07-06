@@ -13,10 +13,21 @@ OriginalFile_checked.docx
 The original document is not modified.
 
 ---
+## Requirements
+
+- Windows
+- Microsoft Word desktop app
+- Zotero Desktop
+- Synced Zotero group libraries
+- Live Zotero citations in the Word document
+
+The tool does not require administrator rights.
+
+---
 
 ## Build Command
 
-To rebuild the portable executable:
+To build the portable executable:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -175,17 +186,6 @@ It also ignores references to figures, tables, sections, equations, boxes, annex
 
 ---
 
-## Requirements
-
-- Windows
-- Microsoft Word desktop app
-- Zotero Desktop
-- Synced Zotero group libraries
-- Live Zotero citations in the Word document
-
-The tool does not require administrator rights.
-
----
 
 ---
 
