@@ -37,7 +37,11 @@ The checker allows citations from only two Zotero group libraries:
 Items from the personal Zotero library or other group libraries are commented as unexpected-library issues.
 
 ---
+## Input file
 
+It is better to store the input file in a local folder instead of having it on a cloud storage such as OneDrive.
+
+---
 ## Recommended Workflow
 
 Before running the checker:
