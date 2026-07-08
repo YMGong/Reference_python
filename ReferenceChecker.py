@@ -11,11 +11,12 @@ import win32com.client as win32
 
 
 DEFAULT_LIBRARY = "WGI AR7 General"
-
-WD_YELLOW = 7
-WD_TURQUOISE = 3
 WD_FORMAT_XML_DOCUMENT = 12
 
+
+# -----------------------------
+# General helpers
+# -----------------------------
 
 def clean_path(path):
     return os.path.abspath(os.path.normpath(urllib.parse.unquote(path)))
@@ -53,6 +54,14 @@ def paragraph_anchor_range(paragraph):
         pass
     return r
 
+
+def ranges_overlap(start1, end1, start2, end2):
+    return start1 < end2 and start2 < end1
+
+
+# -----------------------------
+# Zotero database helpers
+# -----------------------------
 
 def find_zotero_db():
     home = os.path.expanduser("~")
@@ -181,6 +190,10 @@ def load_zotero_items(db_path):
     conn.close()
     return items
 
+
+# -----------------------------
+# Zotero field parsing
+# -----------------------------
 
 def extract_json_from_field_code(code):
     start = code.find("{")
@@ -330,6 +343,10 @@ def parse_citation_items(code):
     return parsed
 
 
+# -----------------------------
+# Citation-like text detection
+# -----------------------------
+
 def parenthetical_author_year_pattern():
     return re.compile(
         r"\("
@@ -370,11 +387,24 @@ def narrative_two_author_year_pattern():
     )
 
 
+def narrative_single_author_year_pattern():
+    return re.compile(
+        r"(?<!\w)"
+        r"("
+        r"(?:[A-Za-zÀ-ÖØ-öø-ÿ'’\-]+|[A-Z]\.)"
+        r")"
+        r"\s*\("
+        r"((?:19|20)\d{2}[a-z]?)"
+        r"\)"
+    )
+
+
 def all_manual_detection_patterns():
     return [
         parenthetical_author_year_pattern(),
         narrative_et_al_year_pattern(),
         narrative_two_author_year_pattern(),
+        narrative_single_author_year_pattern(),
     ]
 
 
@@ -423,7 +453,7 @@ def should_ignore_apparent_citation(text):
     stripped = text.strip()
     inside = stripped[1:-1].strip().lower() if stripped.startswith("(") and stripped.endswith(")") else stripped.lower()
 
-    # Ignore year/date ranges. Manual citation checking only accepts a single year.
+    # Ignore any year/date range. Manual citation checking only accepts a single year.
     if re.search(r"(?:19|20)\d{2}\s*(?:[-–—/]|to)\s*(?:(?:19|20)\d{2}|\d{2})", inside):
         return True
 
@@ -454,6 +484,7 @@ def should_ignore_apparent_citation(text):
         re.search(r"\bet\s+al\.?\b", inside)
         or re.search(r"\b[A-Za-zÀ-ÖØ-öø-ÿ'’\-]+\s*,\s*(?:19|20)\d{2}[a-z]?", inside)
         or re.search(r"\b[A-Za-zÀ-ÖØ-öø-ÿ'’\-]+\s+(?:and|&)\s+[A-Za-zÀ-ÖØ-öø-ÿ'’\-]+", inside)
+        or re.search(r"\b[A-Za-zÀ-ÖØ-öø-ÿ'’\-]+\s*\((?:19|20)\d{2}[a-z]?\)", inside)
     )
 
     if not has_author_signal:
@@ -461,6 +492,10 @@ def should_ignore_apparent_citation(text):
 
     return False
 
+
+# -----------------------------
+# Word helpers
+# -----------------------------
 
 def copy_to_safe_temp(source_path):
     source_path = clean_path(source_path)
@@ -527,80 +562,47 @@ def close_word_safely(word, doc=None):
             pass
 
 
-def ranges_overlap(start1, end1, start2, end2):
-    return start1 < end2 and start2 < end1
-
-
-def range_from_paragraph_offsets(paragraph_range, start_offset, end_offset):
-    r = paragraph_range.Duplicate
-    r.Start = paragraph_range.Start + start_offset
-    r.End = paragraph_range.Start + end_offset
-    return r
-
-
-def fields_intersecting_range(doc, target_range):
-    fields = []
-
-    try:
-        target_start = target_range.Start
-        target_end = target_range.End
-    except Exception:
-        return fields
-
+def build_zotero_result_ranges(doc):
+    ranges = []
     for field in doc.Fields:
         try:
             code = field.Code.Text
             if "ADDIN ZOTERO_ITEM" not in code:
                 continue
-
-            if ranges_overlap(
-                target_start,
-                target_end,
-                field.Result.Start,
-                field.Result.End
-            ):
-                fields.append(field)
-
+            ranges.append((field.Result.Start, field.Result.End))
         except Exception:
             pass
-
-    return fields
-
-
-def linked_components_for_range(doc, target_range):
-    linked = set()
-
-    for field in fields_intersecting_range(doc, target_range):
-        try:
-            code = field.Code.Text
-        except Exception:
-            continue
-
-        plain = get_plain_citation_from_field_code(code)
-
-        for comp in split_author_year_citation(plain):
-            linked.add(comp["norm"])
-
-        try:
-            visible = field.Result.Text
-            for comp in split_author_year_citation(visible):
-                linked.add(comp["norm"])
-        except Exception:
-            pass
-
-    return linked
+    ranges.sort(key=lambda x: x[0])
+    return ranges
 
 
-def find_component_range_in_paragraph(paragraph_range, raw_text, preferred_start=None):
+def candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
+    try:
+        start = candidate_range.Start
+        end = candidate_range.End
+    except Exception:
+        return False
+
+    # Ranges are sorted. Break once we have passed this candidate.
+    for z_start, z_end in zotero_ranges:
+        if z_start >= end:
+            break
+        if ranges_overlap(start, end, z_start, z_end):
+            return True
+    return False
+
+
+def find_visible_range_in_paragraph(paragraph_range, visible_text, preferred_start=None):
     try:
         search_range = paragraph_range.Duplicate
 
         if preferred_start is not None:
-            search_range.Start = paragraph_range.Start + preferred_start
+            # Start near the regex match, but rely on Word Find for the actual range.
+            search_range.Start = max(paragraph_range.Start, paragraph_range.Start + preferred_start - 5)
 
         find = search_range.Find
         find.ClearFormatting()
-        find.Text = raw_text
+        find.Text = visible_text
         find.MatchCase = False
         find.MatchWholeWord = False
 
@@ -609,10 +611,31 @@ def find_component_range_in_paragraph(paragraph_range, raw_text, preferred_start
     except Exception:
         pass
 
+    # Fallback to paragraph range; this is less precise but still attaches a useful comment.
     return paragraph_range
 
 
-def check_manual_citations_in_main_doc(doc, progress_callback=None):
+def find_component_range_in_paragraph(paragraph_range, raw_text, full_match_text=None, preferred_start=None):
+    # First try exact component, e.g. Jenkins et al. (2022) or Jenkins et al., 2022.
+    r = find_visible_range_in_paragraph(paragraph_range, raw_text, preferred_start)
+    try:
+        if short_text(r.Text, len(raw_text) + 5).lower().find(raw_text.lower()) != -1:
+            return r
+    except Exception:
+        pass
+
+    # Then try the full parenthetical/narrative match if provided.
+    if full_match_text:
+        return find_visible_range_in_paragraph(paragraph_range, full_match_text, preferred_start)
+
+    return r
+
+
+# -----------------------------
+# Manual citation detection, optimized
+# -----------------------------
+
+def check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=None):
     if progress_callback:
         progress_callback("Checking possible manually typed in-text citations...")
 
@@ -637,27 +660,26 @@ def check_manual_citations_in_main_doc(doc, progress_callback=None):
                 if should_ignore_apparent_citation(citation_text):
                     continue
 
-                try:
-                    candidate_range = range_from_paragraph_offsets(
-                        paragraph_range,
-                        match.start(),
-                        match.end()
-                    )
-                except Exception:
-                    candidate_range = paragraph_range
+                candidate_range = find_visible_range_in_paragraph(
+                    paragraph_range,
+                    citation_text,
+                    preferred_start=match.start()
+                )
 
-                linked_components = linked_components_for_range(doc, candidate_range)
+                # If the visible citation occurrence is backed by a Zotero field, it is linked, not manual.
+                if candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
+                    continue
+
                 comps = split_author_year_citation(citation_text)
 
                 for comp in comps:
-                    if comp["norm"] not in linked_components:
-                        manual_candidates.append({
-                            "raw": comp["raw"],
-                            "norm": comp["norm"],
-                            "match_start": match.start(),
-                            "match_end": match.end(),
-                            "full_match": citation_text,
-                        })
+                    manual_candidates.append({
+                        "raw": comp["raw"],
+                        "norm": comp["norm"],
+                        "match_start": match.start(),
+                        "match_end": match.end(),
+                        "full_match": citation_text,
+                    })
 
         if not manual_candidates:
             continue
@@ -675,6 +697,7 @@ def check_manual_citations_in_main_doc(doc, progress_callback=None):
             target_range = find_component_range_in_paragraph(
                 paragraph_range,
                 item["raw"],
+                full_match_text=item["full_match"],
                 preferred_start=item["match_start"]
             )
 
@@ -688,6 +711,10 @@ def check_manual_citations_in_main_doc(doc, progress_callback=None):
             )
 
 
+# -----------------------------
+# Main processing
+# -----------------------------
+
 def process_document(input_path, checked_output_path, db_path, selected_library, progress_callback=None):
     def progress(message):
         if progress_callback:
@@ -698,6 +725,12 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
     progress("Loading Zotero database...")
     items = load_zotero_items(db_path)
     allowed_libraries = {DEFAULT_LIBRARY, selected_library}
+
+    items = {
+    key: meta
+    for key, meta in items.items()
+    if meta.get("library") in allowed_libraries
+    }
 
     progress("Copying document to a safe local working folder...")
     temp_doc, temp_dir = copy_to_safe_temp(input_path)
@@ -728,7 +761,6 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
             citation_items = parse_citation_items(code)
 
             if not citation_items:
-                field.Result.HighlightColorIndex = WD_YELLOW
                 add_comment(
                     doc,
                     field.Result,
@@ -742,7 +774,6 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 label = citation_item.get("label", "Unknown citation item")
 
                 if not key:
-                    field.Result.HighlightColorIndex = WD_YELLOW
                     add_comment(
                         doc,
                         field.Result,
@@ -754,7 +785,6 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 used_keys.add(key)
 
                 if key not in items:
-                    field.Result.HighlightColorIndex = WD_YELLOW
                     add_comment(
                         doc,
                         field.Result,
@@ -767,7 +797,6 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 library = items[key]["library"]
 
                 if library not in allowed_libraries:
-                    field.Result.HighlightColorIndex = WD_YELLOW
                     add_comment(
                         doc,
                         field.Result,
@@ -805,7 +834,6 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 entry_preview = short_text(entry_text, 100)
 
                 if matched_key not in used_keys:
-                    anchor.HighlightColorIndex = WD_YELLOW
                     add_comment(
                         doc,
                         anchor,
@@ -813,20 +841,13 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                     )
 
                 if not meta.get("DOI") and not meta.get("url"):
-                    anchor.HighlightColorIndex = WD_TURQUOISE
                     add_comment(
                         doc,
                         anchor,
                         f"Issue: This reference has neither DOI nor URL in Zotero.\n\nEntry: {entry_preview}"
                     )
 
-                if meta["library"] not in allowed_libraries:
-                    anchor.HighlightColorIndex = WD_YELLOW
-                    add_comment(
-                        doc,
-                        anchor,
-                        f"Issue: This bibliography item comes from unexpected Zotero library: {meta['library']}.\n\nEntry: {entry_preview}"
-                    )
+ 
 
         else:
             add_comment(
@@ -835,7 +856,10 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 "Issue: Zotero bibliography field was not found. The bibliography may be unlinked or manually edited."
             )
 
-        check_manual_citations_in_main_doc(doc, progress_callback=progress)
+        progress("Indexing linked Zotero citation ranges...")
+        zotero_ranges = build_zotero_result_ranges(doc)
+
+        check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=progress)
 
         progress("Saving checked Word document...")
         doc.SaveAs2(
@@ -861,6 +885,10 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
     progress("Finished.")
 
+
+# -----------------------------
+# GUI
+# -----------------------------
 
 def main():
     root = tk.Tk()
