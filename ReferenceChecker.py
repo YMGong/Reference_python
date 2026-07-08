@@ -30,6 +30,26 @@ def short_text(text, limit=100):
 def normalize_text(text):
     return re.sub(r"\s+", " ", text or "").strip().lower()
 
+def normalize_match_text(text):
+    text = (text or "").lower()
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+# Temporary debug logging
+debug_path = os.path.join(
+    os.path.expanduser("~"),
+    "Desktop",
+    "refcheck_debug.txt"
+)
+
+def debug_log(text):
+    with open(debug_path, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
 
 def normalize_citation_component(text):
     text = text.lower()
@@ -331,6 +351,7 @@ def parse_citation_items(code):
             parsed.append({
                 "key": key,
                 "label": citation_item_label(item_data, key),
+                "title": item_data.get("title", ""),
             })
 
     if not parsed:
@@ -740,6 +761,7 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
     word = None
     doc = None
     used_keys = set()
+    used_titles = set()
 
     try:
         word = win32.DispatchEx("Word.Application")
@@ -784,6 +806,25 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
                 used_keys.add(key)
 
+                title = ""
+
+                if key in items:
+                    title = normalize_match_text(items[key].get("title", ""))
+
+                if not title:
+                    title = normalize_match_text(citation_item.get("title", ""))
+
+                if title:
+                    used_titles.add(title)
+
+                if "forster" in normalize_text(plain):
+                    debug_log("\n--- FORSTER IN-TEXT CITATION ---")
+                    debug_log("PLAIN CITATION: " + repr(plain))
+                    debug_log("KEY: " + str(key))
+                    debug_log("KEY IN FILTERED ITEMS? " + str(key in items))
+                    debug_log("EMBEDDED TITLE: " + repr(citation_item.get("title", "")))
+                    debug_log("TITLE ADDED TO USED_TITLES: " + repr(title))
+                        
                 if key not in items:
                     add_comment(
                         doc,
@@ -811,29 +852,68 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
             paragraphs = bib_range.Paragraphs
 
             for paragraph in paragraphs:
+
                 anchor = paragraph_anchor_range(paragraph)
-                entry_text = range_text(anchor)
-                p_text = normalize_text(entry_text)
+
+                try:
+                    entry_text = anchor.Text
+                except Exception:
+                    entry_text = ""
+
+                p_text = normalize_match_text(entry_text)
+                
+
 
                 if not p_text:
                     continue
 
                 matched_key = None
+                matched_score = 0
 
                 for key, meta in items.items():
-                    title = normalize_text(meta.get("title", ""))
+                    title = normalize_match_text(meta.get("title", ""))
 
-                    if title and len(title) > 15 and title in p_text:
+                    if not title or len(title) <= 25 or title not in p_text:
+                        continue
+
+                    # Prefer titles that appear earlier in the bibliography entry.
+                    # This helps with chapters/annexes where the entry contains both
+                    # the chapter title and the parent book/report title after "In ...".
+                    position = p_text.find(title)
+                    score = len(title) - position
+
+                    if score > matched_score:
                         matched_key = key
-                        break
+                        matched_score = score
 
                 if not matched_key:
                     continue
 
                 meta = items[matched_key]
                 entry_preview = short_text(entry_text, 100)
+                matched_title = normalize_match_text(meta.get("title", ""))
 
-                if matched_key not in used_keys:
+                # Safety check: even if matched_key picked the parent book/report title,
+                # do not mark the bibliography entry as uncited if the entry contains
+                # any title that was found in linked in-text Zotero citations.
+                entry_contains_used_title = any(
+                    used_title and len(used_title) > 15 and used_title in p_text
+                    for used_title in used_titles
+                )
+
+                if (
+                    matched_key not in used_keys
+                    and matched_title not in used_titles
+                    and not entry_contains_used_title
+                ):
+                    debug_log("\n--- UNMATCHED BIBLIOGRAPHY COMMENT ---")
+                    debug_log("RAW ENTRY: " + repr(entry_text))
+                    debug_log("MATCHED KEY: " + str(matched_key))
+                    debug_log("MATCHED TITLE: " + repr(matched_title))
+                    debug_log("Key in used_keys? " + str(matched_key in used_keys))
+                    debug_log("Title in used_titles? " + str(matched_title in used_titles))
+                    debug_log("Entry contains any used title? " + str(entry_contains_used_title))
+
                     add_comment(
                         doc,
                         anchor,
