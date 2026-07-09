@@ -96,11 +96,19 @@ The tool creates:
 ```text
 OriginalFile_checked.docx
 ```
-
 This checked file contains:
 
 - Word comments
 - issue descriptions directly in the document
+
+It also creates or updates:
+
+``` text
+refcheck_debug.txt
+```
+in the same folder as the selected Word document.
+
+The debug log records essential information only for issues that actually receive Word comments. Each run includes the date and time, input file, and selected library.
 
 ---
 
@@ -122,6 +130,7 @@ Possible causes:
 - item deleted
 - citation copied from another document
 - broken Zotero field
+- wrong second group library selected
 
 #### “Citation item comes from unexpected Zotero library.”
 
@@ -137,6 +146,9 @@ The citation is linked, but the item belongs to a library other than:
 #### “This bibliography entry appears in the reference list but was not found as a linked in-text citation.”
 
 The reference appears in the bibliography but was not found among linked Zotero citations.
+
+The checker uses item keys and normalized titles. It also checks whether a bibliography entry contains a cited chapter or annex title when the same entry also contains a parent book or report title.
+
 
 #### “This reference has neither DOI nor URL in Zotero.”
 
@@ -164,9 +176,21 @@ Chen, W et al. (2002)
 Li and Paul (2026)
 ```
 
-The tool adds a comment only. It does not highlight possible manual citations.
-
+The tool adds a comment only.
 The comment asks the user to insert the citation using Zotero and update the reference list.
+
+---
+## Debug Log
+
+`refcheck_debug.txt` is saved in the same folder as the Word document
+being checked.
+
+The log no longer records every in-text citation field. It records
+concise diagnostic information only when the checker adds a Word
+comment, making it easier to investigate false positives.
+
+The log is appended across runs and separates each run with a timestamp
+and run information.
 
 ---
 
