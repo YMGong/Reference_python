@@ -31,10 +31,17 @@ def normalize_text(text):
     return re.sub(r"\s+", " ", text or "").strip().lower()
 
 def normalize_match_text(text):
-    text = (text or "").lower()
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    text = text.lower()
     text = text.replace("\u2018", "'").replace("\u2019", "'")
     text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\u00a0", " ")
+    text = text.replace("\u2010", "-")
+    text = text.replace("\u2011", "-")
+    text = text.replace("\u2012", "-")
+    text = text.replace("\u2013", "-")
+    text = text.replace("\u2014", "-")
+    text = text.replace("\u2212", "-")
     text = re.sub(r"[^a-z0-9]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
@@ -817,13 +824,13 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 if title:
                     used_titles.add(title)
 
-                if "forster" in normalize_text(plain):
-                    debug_log("\n--- FORSTER IN-TEXT CITATION ---")
-                    debug_log("PLAIN CITATION: " + repr(plain))
-                    debug_log("KEY: " + str(key))
-                    debug_log("KEY IN FILTERED ITEMS? " + str(key in items))
-                    debug_log("EMBEDDED TITLE: " + repr(citation_item.get("title", "")))
-                    debug_log("TITLE ADDED TO USED_TITLES: " + repr(title))
+                debug_log("\n--- IN-TEXT CITATION ITEM ---")
+                debug_log("PLAIN CITATION: " + repr(plain))
+                debug_log("KEY: " + str(key))
+                debug_log("KEY IN FILTERED ITEMS? " + str(key in items))
+                debug_log("EMBEDDED TITLE: " + repr(citation_item.get("title", "")))
+                debug_log("TITLE USED: " + repr(title))
+
                         
                 if key not in items:
                     add_comment(
@@ -920,14 +927,50 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                         f"Issue: This bibliography entry appears in the reference list but was not found as a linked in-text citation.\n\nEntry: {entry_preview}"
                     )
 
+
+
+                #if not meta.get("DOI") and not meta.get("url"):
+                #    add_comment(
+                #        doc,
+                #        anchor,
+                #        f"Issue: This reference has neither DOI nor URL in Zotero.\n\nEntry: {entry_preview}"
+                #    )
+
+                entry_has_doi = bool(
+                    re.search(r"\b10\.\d{4,9}/\S+", entry_text, re.I)
+                )
+
+                entry_has_url = (
+                    "http://" in entry_text.lower()
+                    or "https://" in entry_text.lower()
+                )
+
                 if not meta.get("DOI") and not meta.get("url"):
+                    debug_log("\n--- ZOTERO ITEM HAS NO DOI/URL ---")
+                    debug_log("RAW ENTRY: " + repr(entry_text))
+                    debug_log("MATCHED KEY: " + str(matched_key))
+                    debug_log("MATCHED TITLE: " + repr(matched_title))
+                    debug_log("ZOTERO DOI FIELD: " + repr(meta.get("DOI", "")))
+                    debug_log("ZOTERO URL FIELD: " + repr(meta.get("url", "")))
+                    debug_log("ENTRY HAS DOI TEXT? " + str(entry_has_doi))
+                    debug_log("ENTRY HAS URL TEXT? " + str(entry_has_url))
+                    debug_log(
+                        "COMMENT ADDED? "
+                        + str(not entry_has_doi and not entry_has_url)
+                    )
+
+                if (
+                    not meta.get("DOI")
+                    and not meta.get("url")
+                    and not entry_has_doi
+                    and not entry_has_url
+                ):
                     add_comment(
                         doc,
                         anchor,
                         f"Issue: This reference has neither DOI nor URL in Zotero.\n\nEntry: {entry_preview}"
                     )
 
- 
 
         else:
             add_comment(
