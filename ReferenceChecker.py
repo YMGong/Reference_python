@@ -1,10 +1,13 @@
 import os
 import re
+import html
 import json
 import shutil
 import sqlite3
 import tempfile
 import urllib.parse
+import time
+from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import win32com.client as win32
@@ -31,8 +34,24 @@ def normalize_text(text):
     return re.sub(r"\s+", " ", text or "").strip().lower()
 
 def normalize_match_text(text):
-    text = re.sub(r"<[^>]+>", " ", text or "")
+    text = html.unescape(text or "")
+    text = re.sub(r"<[^>]+>", " ", text)
     text = text.lower()
+
+    # Normalize Unicode subscript digits, e.g. SO₂ -> SO2.
+    text = text.translate(str.maketrans({
+        "₀": "0",
+        "₁": "1",
+        "₂": "2",
+        "₃": "3",
+        "₄": "4",
+        "₅": "5",
+        "₆": "6",
+        "₇": "7",
+        "₈": "8",
+        "₉": "9",
+    }))
+
     text = text.replace("\u2018", "'").replace("\u2019", "'")
     text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\u00a0", " ")
@@ -46,16 +65,37 @@ def normalize_match_text(text):
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-# Temporary debug logging
-debug_path = os.path.join(
-    os.path.expanduser("~"),
-    "Desktop",
-    "refcheck_debug.txt"
-)
+# Debug logging
+debug_path = None
 
 def debug_log(text):
+    if not debug_path:
+        return
+
     with open(debug_path, "a", encoding="utf-8") as f:
         f.write(text + "\n")
+
+
+def start_debug_run(input_path, selected_library):
+    with open(debug_path, "a", encoding="utf-8") as f:
+        f.write("\n\n==============================\n")
+        f.write("REFERENCE CHECK RUN: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        f.write("Input file: " + str(input_path) + "\n")
+        f.write("Selected library: " + str(selected_library) + "\n")
+        f.write("==============================\n")
+
+
+def log_comment_context(issue_type, details):
+    debug_log("\n--- COMMENT ADDED: " + issue_type + " ---")
+    for key, value in details.items():
+        debug_log(str(key) + ": " + repr(value))
+
+
+def log_elapsed_time(check_name, started_at):
+    """Write elapsed time to the debug log."""
+    elapsed = time.perf_counter() - started_at
+    debug_log(f"TIME - {check_name}: {elapsed:.3f} seconds")
+    return elapsed
 
 
 def normalize_citation_component(text):
@@ -592,17 +632,24 @@ def close_word_safely(word, doc=None):
 
 def build_zotero_result_ranges(doc):
     ranges = []
+
     for field in doc.Fields:
         try:
             code = field.Code.Text
-            if "ADDIN ZOTERO_ITEM" not in code:
+            code_upper = code.upper()
+
+            # Include valid and damaged Zotero fields so their visible text is
+            # not later misclassified as a manually typed citation.
+            if "ADDIN ZOTERO" not in code_upper:
                 continue
+
             ranges.append((field.Result.Start, field.Result.End))
+
         except Exception:
             pass
+
     ranges.sort(key=lambda x: x[0])
     return ranges
-
 
 def candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
     try:
@@ -729,6 +776,11 @@ def check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=Non
                 preferred_start=item["match_start"]
             )
 
+            log_comment_context("Possible manually typed in-text citation", {
+                "possible_manual_citation": item["raw"],
+                "paragraph_excerpt": short_text(paragraph_text, 180),
+            })
+
             add_comment(
                 doc,
                 target_range,
@@ -748,17 +800,38 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
         if progress_callback:
             progress_callback(message)
 
+    global debug_path
+
     temp_dir = None
+
+    # Save the debug log in the same folder as the selected Word document.
+    debug_path = os.path.join(
+        os.path.dirname(clean_path(input_path)),
+        "refcheck_debug.txt"
+    )
+
+    start_debug_run(input_path, selected_library)
+    total_started_at = time.perf_counter()
 
     progress("Loading Zotero database...")
     items = load_zotero_items(db_path)
     allowed_libraries = {DEFAULT_LIBRARY, selected_library}
 
     items = {
-    key: meta
-    for key, meta in items.items()
-    if meta.get("library") in allowed_libraries
+        key: meta
+        for key, meta in items.items()
+        if meta.get("library") in allowed_libraries
     }
+
+    # Build this once so a citation whose embedded Zotero key is no longer
+    # present can be resolved quickly by its normalized embedded title.
+    title_lookup = {}
+
+    for candidate_key, meta in items.items():
+        candidate_title = normalize_match_text(meta.get("title", ""))
+
+        if candidate_title:
+            title_lookup.setdefault(candidate_title, []).append(candidate_key)
 
     progress("Copying document to a safe local working folder...")
     temp_doc, temp_dir = copy_to_safe_temp(input_path)
@@ -782,14 +855,46 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
         for field in doc.Fields:
             code = field.Code.Text
+            code_upper = code.upper()
 
-            if "ADDIN ZOTERO_ITEM" not in code:
+            # Ignore non-Zotero fields.
+            if "ADDIN ZOTERO" not in code_upper:
+                continue
+
+            # The bibliography is a valid Zotero field, but it is not an
+            # in-text citation and should not be reported as damaged.
+            if "ZOTERO_BIBL" in code_upper:
+                continue
+
+            # Any other Zotero field that is not a valid ZOTERO_ITEM field is
+            # treated as damaged or incomplete, for example "ADDIN Zotero TEMPP".
+            if "ZOTERO_ITEM" not in code_upper:
+                visible_text = range_text(field.Result)
+
+                log_comment_context(
+                    "Damaged Zotero field",
+                    {
+                        "field_code": short_text(code, 120),
+                        "visible_text": visible_text,
+                    },
+                )
+
+                add_comment(
+                    doc,
+                    field.Result,
+                    "Issue: This appears to be a damaged Zotero citation field. "
+                    "The citation may have become corrupted or partially unlinked. "
+                    "Please reinsert the citation using Zotero."
+                )
                 continue
 
             plain = get_plain_citation_from_field_code(code) or range_text(field.Result)
             citation_items = parse_citation_items(code)
 
             if not citation_items:
+                log_comment_context("Unreadable linked Zotero citation", {
+                    "citation": plain,
+                })
                 add_comment(
                     doc,
                     field.Result,
@@ -803,6 +908,10 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 label = citation_item.get("label", "Unknown citation item")
 
                 if not key:
+                    log_comment_context("Missing item key in linked Zotero citation", {
+                        "citation": plain,
+                        "citation_item": label,
+                    })
                     add_comment(
                         doc,
                         field.Result,
@@ -813,43 +922,69 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
                 used_keys.add(key)
 
+                embedded_title = normalize_match_text(
+                    citation_item.get("title", "")
+                )
+                resolved_key = key
+
+                # If the exact embedded key is absent, look for the same item
+                # title in the two selected libraries. This handles copied,
+                # merged, recreated, or duplicated Zotero items whose keys differ.
+                if key not in items and embedded_title:
+                    alternate_keys = title_lookup.get(embedded_title, [])
+
+                    if alternate_keys:
+                        resolved_key = alternate_keys[0]
+                        used_keys.add(resolved_key)
+
                 title = ""
 
-                if key in items:
-                    title = normalize_match_text(items[key].get("title", ""))
+                if resolved_key in items:
+                    title = normalize_match_text(
+                        items[resolved_key].get("title", "")
+                    )
 
                 if not title:
-                    title = normalize_match_text(citation_item.get("title", ""))
+                    title = embedded_title
 
                 if title:
                     used_titles.add(title)
 
-                debug_log("\n--- IN-TEXT CITATION ITEM ---")
-                debug_log("PLAIN CITATION: " + repr(plain))
-                debug_log("KEY: " + str(key))
-                debug_log("KEY IN FILTERED ITEMS? " + str(key in items))
-                debug_log("EMBEDDED TITLE: " + repr(citation_item.get("title", "")))
-                debug_log("TITLE USED: " + repr(title))
-
-                        
-                if key not in items:
+                if resolved_key not in items:
+                    log_comment_context("Linked Zotero citation item not found", {
+                        "citation": plain,
+                        "citation_item": label,
+                        "embedded_key": key,
+                        "embedded_title": citation_item.get("title", ""),
+                        "key_in_filtered_items": key in items,
+                        "title_match_in_selected_libraries": False,
+                    })
                     add_comment(
                         doc,
                         field.Result,
-                        f"Issue: This linked Zotero citation item was not found in the local Zotero database. "
+                        f"Issue: This linked Zotero citation item was not found in the selected local Zotero libraries. "
                         f"The link may be broken, the item may have been deleted, or the relevant group library may not be synced.\n\n"
                         f"Citation item: {label}\n\nCitation: {plain}"
                     )
                     continue
 
-                library = items[key]["library"]
+                library = items[resolved_key]["library"]
 
                 if library not in allowed_libraries:
+                    log_comment_context("Unexpected Zotero library", {
+                        "citation": plain,
+                        "citation_item": label,
+                        "embedded_key": key,
+                        "resolved_key": resolved_key,
+                        "library": library,
+                        "allowed_libraries": sorted(allowed_libraries),
+                    })
                     add_comment(
                         doc,
                         field.Result,
                         f"Issue: Citation item comes from unexpected Zotero library: {library}.\n\nCitation item: {label}"
                     )
+
 
         progress("Checking Zotero bibliography...")
         bibliography_field = find_bibliography_field(doc)
@@ -857,6 +992,11 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
         if bibliography_field:
             bib_range = bibliography_field.Result
             paragraphs = bib_range.Paragraphs
+
+            # Duplicate checks use the normalized full bibliography entry as a
+            # safeguard against false positives from parent book/report titles.
+            seen_bibliography_keys = {}
+            seen_bibliography_titles = {}
 
             for paragraph in paragraphs:
 
@@ -900,11 +1040,75 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                 entry_preview = short_text(entry_text, 100)
                 matched_title = normalize_match_text(meta.get("title", ""))
 
+                previous_key_entry = seen_bibliography_keys.get(matched_key)
+                if previous_key_entry and previous_key_entry["entry_text"] == p_text:
+                    log_comment_context("Duplicate bibliography entry: same Zotero item", {
+                        "entry": entry_preview,
+                        "matched_key": matched_key,
+                        "matched_title": matched_title,
+                        "first_entry": previous_key_entry["entry_preview"],
+                    })
+                    add_comment(
+                        doc,
+                        anchor,
+                        "Issue: This bibliography entry duplicates another entry in the "
+                        "reference list and matches the same Zotero item.\n\n"
+                        f"Entry: {entry_preview}"
+                    )
+                else:
+                    seen_bibliography_keys.setdefault(
+                        matched_key,
+                        {
+                            "entry_text": p_text,
+                            "entry_preview": entry_preview,
+                        },
+                    )
+
+                previous_title_entry = seen_bibliography_titles.get(matched_title)
+                if (
+                    matched_title
+                    and previous_title_entry
+                    and previous_title_entry["key"] != matched_key
+                    and previous_title_entry["entry_text"] == p_text
+                ):
+                    log_comment_context(
+                        "Duplicate bibliography entry: same title, different Zotero items",
+                        {
+                            "entry": entry_preview,
+                            "matched_title": matched_title,
+                            "current_key": matched_key,
+                            "first_key": previous_title_entry["key"],
+                            "first_entry": previous_title_entry["entry_preview"],
+                        },
+                    )
+                    add_comment(
+                        doc,
+                        anchor,
+                        "Issue: This bibliography entry has the same title as another "
+                        "entry but matches a different Zotero item. This may indicate "
+                        "duplicate Zotero records.\n\n"
+                        f"Entry: {entry_preview}"
+                    )
+                elif matched_title:
+                    seen_bibliography_titles.setdefault(
+                        matched_title,
+                        {
+                            "key": matched_key,
+                            "entry_text": p_text,
+                            "entry_preview": entry_preview,
+                        },
+                    )
+
                 # Safety check: even if matched_key picked the parent book/report title,
                 # do not mark the bibliography entry as uncited if the entry contains
                 # any title that was found in linked in-text Zotero citations.
                 entry_contains_used_title = any(
-                    used_title and len(used_title) > 15 and used_title in p_text
+                    used_title
+                    and (
+                        len(used_title) > 15
+                        or used_title in {"glossary"}
+                    )
+                    and used_title in p_text
                     for used_title in used_titles
                 )
 
@@ -913,13 +1117,14 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                     and matched_title not in used_titles
                     and not entry_contains_used_title
                 ):
-                    debug_log("\n--- UNMATCHED BIBLIOGRAPHY COMMENT ---")
-                    debug_log("RAW ENTRY: " + repr(entry_text))
-                    debug_log("MATCHED KEY: " + str(matched_key))
-                    debug_log("MATCHED TITLE: " + repr(matched_title))
-                    debug_log("Key in used_keys? " + str(matched_key in used_keys))
-                    debug_log("Title in used_titles? " + str(matched_title in used_titles))
-                    debug_log("Entry contains any used title? " + str(entry_contains_used_title))
+                    log_comment_context("Bibliography entry not found as linked in-text citation", {
+                        "entry": entry_preview,
+                        "matched_key": matched_key,
+                        "matched_title": matched_title,
+                        "key_in_used_keys": matched_key in used_keys,
+                        "title_in_used_titles": matched_title in used_titles,
+                        "entry_contains_used_title": entry_contains_used_title,
+                    })
 
                     add_comment(
                         doc,
@@ -945,26 +1150,22 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                     or "https://" in entry_text.lower()
                 )
 
-                if not meta.get("DOI") and not meta.get("url"):
-                    debug_log("\n--- ZOTERO ITEM HAS NO DOI/URL ---")
-                    debug_log("RAW ENTRY: " + repr(entry_text))
-                    debug_log("MATCHED KEY: " + str(matched_key))
-                    debug_log("MATCHED TITLE: " + repr(matched_title))
-                    debug_log("ZOTERO DOI FIELD: " + repr(meta.get("DOI", "")))
-                    debug_log("ZOTERO URL FIELD: " + repr(meta.get("url", "")))
-                    debug_log("ENTRY HAS DOI TEXT? " + str(entry_has_doi))
-                    debug_log("ENTRY HAS URL TEXT? " + str(entry_has_url))
-                    debug_log(
-                        "COMMENT ADDED? "
-                        + str(not entry_has_doi and not entry_has_url)
-                    )
-
                 if (
                     not meta.get("DOI")
                     and not meta.get("url")
                     and not entry_has_doi
                     and not entry_has_url
                 ):
+                    log_comment_context("Reference has neither DOI nor URL", {
+                        "entry": entry_preview,
+                        "matched_key": matched_key,
+                        "matched_title": matched_title,
+                        "zotero_doi_field": meta.get("DOI", ""),
+                        "zotero_url_field": meta.get("url", ""),
+                        "entry_has_doi_text": entry_has_doi,
+                        "entry_has_url_text": entry_has_url,
+                    })
+
                     add_comment(
                         doc,
                         anchor,
@@ -973,11 +1174,15 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
 
         else:
+            log_comment_context("Zotero bibliography field not found", {
+                "document": input_path,
+            })
             add_comment(
                 doc,
                 doc.Content,
                 "Issue: Zotero bibliography field was not found. The bibliography may be unlinked or manually edited."
             )
+
 
         progress("Indexing linked Zotero citation ranges...")
         zotero_ranges = build_zotero_result_ranges(doc)
@@ -996,6 +1201,7 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
         doc = None
 
         shutil.copy2(temp_checked_output, clean_path(checked_output_path))
+        log_elapsed_time("Total reference check", total_started_at)
 
     finally:
         close_word_safely(word, doc)
