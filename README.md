@@ -125,7 +125,7 @@ the citation using Zotero. Damaged Zotero fields are excluded from the
 manual-citation check, so they should receive this comment instead of a
 second "manually typed citation" comment.
 
-<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
+<ins>For this type of comment, try to find out if the in-text citation can still be found on the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 #### "This is a linked Zotero citation, but the checker could not read its Zotero item data."
 
@@ -133,7 +133,7 @@ The Word field looks like a Zotero citation, but its embedded citation
 data could not be parsed. The field may be damaged, incomplete, or
 partially copied from another document.
 
-<ins>For this type of comment, check if it is really an in-text citation. If not, delete the comment.</ins> 
+<ins>For this type of comment, check if it is really an in-text citation. If not, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins> 
 
 #### "The checker could not read the item key for one citation item."
 
@@ -228,7 +228,7 @@ The checker requires the normalized full bibliography entries to match,
 which reduces false duplicate warnings for different chapters that share
 the same parent book or report title.
 
-<ins>For this type of comment, try to find out if it is true. If not true, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
+<ins>For this type of comment, try to find out if it is true. If not true, delete the comment. Otherwise, delete the duplication through the Zotero add-on.</ins>
 
 #### "This reference has neither DOI nor URL in Zotero."
 
@@ -242,7 +242,7 @@ This comment is added only when all four checks are negative:
 A visible DOI or URL therefore prevents this comment even when the
 corresponding Zotero metadata fields are empty.
 
-<ins>For this type of comment, try to find out if the article can be found online. If not, try to find a Zotero entry (with an attached PDF) in the "Non-peer-reviewed literature" folder of the "WGI AR7 General" library. If an entry can be found, delete the comment. If not, reply to the comment with "Please provide the metadata and the PDF file of the article in the 'Non-peer-reviewed literature' folder."
+<ins>For this type of comment, try to find out if the article can be found online. If not, try to find a Zotero entry (with an attached PDF) in the "Non-peer-reviewed literature" folder of the "WGI AR7 General" library. If an entry can be found, delete the comment. If not, reply to the comment with "Please provide the metadata and a PDF file of the article in the 'Non-peer-reviewed literature' folder."
 
 ------------------------------------------------------------------------
 
@@ -262,7 +262,7 @@ Jenkins et al. (2022)
 Chen, W et al. (2002)
 Li and Paul (2026)
 
-<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations and update the reference list.</ins>
 
 ---
 ## Debug Log
@@ -270,7 +270,7 @@ Li and Paul (2026)
 `refcheck_debug.txt` is saved in the same folder as the Word document
 being checked.
 
-The log no longer records every in-text citation field. It records
+The log records
 concise diagnostic information only when the checker adds a Word
 comment, making it easier to investigate false positives.
 
@@ -291,7 +291,7 @@ The manual citation checker ignores date ranges and year ranges such as:
 (2020 to 2030)
 ```
 
-It also ignores references to figures, tables, sections, equations, boxes, annexes, and supplements.
+It also ignores callouts to figures, tables, sections, equations, boxes, annexes, and supplements.
 
 ---
 
@@ -304,4 +304,3 @@ The checker is most reliable for live Zotero citations.
 
 Possible manually typed citation detection is pattern-based. It may require human review.
 
-The checker does not edit the original document.
