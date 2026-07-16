@@ -125,7 +125,7 @@ the citation using Zotero. Damaged Zotero fields are excluded from the
 manual-citation check, so they should receive this comment instead of a
 second "manually typed citation" comment.
 
-<u>For this type of comment, we should try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.<u>
+<u>For this type of comment, we should try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</u>
 
 #### "This is a linked Zotero citation, but the checker could not read its Zotero item data."
 
