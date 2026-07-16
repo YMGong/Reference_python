@@ -78,7 +78,7 @@ Before running the checker:
 3. Download and install the "intergovernmental-panel-on-climate-change-v6.csl" from https://github.com/IPCC-AR7-WG1/referencing_zotero.
 5. Close Zotero.
 6. Download the draft text to a local drive (not in the Cloud).
-7. Check if the "intergovernmental-panel-on-climate-change-v6" citation style is used. If not, change it to this citation style and change the font size back to 10. 
+7. Check if the "intergovernmental panel on climate change v6" citation style is used. If not, change it to this citation style and change the font size back to 10. 
 8. Save and close all Microsoft Word windows.
 9. Run `ReferenceChecker.exe`.
 10. Select the second Zotero group library.
