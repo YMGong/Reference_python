@@ -297,8 +297,6 @@ It also ignores callouts to figures, tables, sections, equations, boxes, annexes
 ---
 
 
----
-
 ## Important Limitations
 
 The checker is most reliable for live Zotero citations.
