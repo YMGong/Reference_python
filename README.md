@@ -253,6 +253,8 @@ corresponding Zotero metadata fields are empty.
 The checker found author–year citation-like text that does not overlap a
 valid or damaged Zotero-backed Word field.
 
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations and update the reference list.</ins>
+
 Example forms checked include:
 
 ```text
@@ -262,10 +264,8 @@ Jenkins et al. (2022)
 Chen, W et al. (2002)
 Li and Paul (2026)
 
-<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations and update the reference list.</ins>
-
 ---
-## Debug Log
+### Debug Log
 
 `refcheck_debug.txt` is saved in the same folder as the Word document
 being checked.
@@ -279,7 +279,7 @@ and run information.
 
 ---
 
-## What Is Ignored
+### What Is Ignored
 
 The manual citation checker ignores date ranges and year ranges such as:
 
