@@ -74,16 +74,17 @@ It is better to store the input file in a local folder rather than in cloud stor
 Before running the checker:
 
 1. Open Zotero.
-2. Sync Zotero completely.
-3. Make sure both required group libraries are synced.
-4. Close Zotero.
-5. Save and close the Word document.
-6. Close all Microsoft Word windows.
-7. Run `ReferenceChecker.exe`.
-8. Select the second Zotero group library.
-9. Select the Word document.
-10. Wait for the finishing message.
-11. Open `OriginalFile_checked.docx`.
+2. Sync required Zotero group libraries completely.
+3. Download and install the "intergovernmental-panel-on-climate-change-v6.csl" from https://github.com/IPCC-AR7-WG1/referencing_zotero.
+5. Close Zotero.
+6. Download the draft text to a local drive (not in the Cloud).
+7. Check if the "intergovernmental-panel-on-climate-change-v6" citation style is used. If not, change it to this citation style and change the font size back to 10. 
+8. Save and close all Microsoft Word windows.
+9. Run `ReferenceChecker.exe`.
+10. Select the second Zotero group library.
+11. Select the Word document.
+12. Wait for the finishing message.
+13. Open `OriginalFile_checked.docx`.
 
 Do not keep Zotero or the target Word document open while the checker runs.
 
