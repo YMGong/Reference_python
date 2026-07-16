@@ -48,7 +48,7 @@ The checker reviews:
 1. Live Zotero in-text citations
 2. Zotero-generated bibliography entries
 3. Whether citations come from approved Zotero libraries
-4. Broken in-text citations
+4. Broken in-text citations Zotero field codes 
 5. Whether bibliography items are used in the text
 6. Whether bibliography items have a DOI or URL
 7. Whether bibliography items are duplicated 
@@ -62,8 +62,6 @@ The checker allows citations from only two Zotero group libraries:
 
 1. `WGI AR7 General`
 2. One additional Zotero group library selected by the user
-
-Items from the personal Zotero library or other group libraries are commented as unexpected-library issues.
 
 ---
 ## Input file
@@ -114,59 +112,129 @@ The debug log records essential information only for issues that actually receiv
 
 ---
 
-## Meaning of Comments
-
 ### Linked Zotero Citation Issues
 
-#### “This is a linked Zotero citation, but the checker could not read its Zotero item data.”
+#### "This appears to be a damaged Zotero citation field."
 
-The citation is linked, but its Zotero field metadata may be damaged or incomplete.
+The text is still inside a Zotero-backed Word field, but the field code is
+not a valid `ZOTERO_ITEM` citation field—for example, a damaged code such
+as `ADDIN Zotero TEMPP`.
 
-#### “This linked Zotero citation item was not found in the local Zotero database.”
+The citation may have become corrupted or partially unlinked. Reinsert
+the citation using Zotero. Damaged Zotero fields are excluded from the
+manual-citation check, so they should receive this comment instead of a
+second "manually typed citation" comment.
 
-The citation points to a Zotero item that was not found locally.
+<u>For this type of comment, we should try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.<u>
 
-Possible causes:
+#### "This is a linked Zotero citation, but the checker could not read its Zotero item data."
 
-- Zotero library not synced
-- item deleted
-- citation copied from another document
-- broken Zotero field
-- wrong second group library selected
+The Word field looks like a Zotero citation, but its embedded citation
+data could not be parsed. The field may be damaged, incomplete, or
+partially copied from another document.
 
-#### “Citation item comes from unexpected Zotero library.”
+#### "The checker could not read the item key for one citation item."
 
-The citation is linked, but the item belongs to a library other than:
+The Zotero field data was readable, but one citation item did not contain
+a usable Zotero item key. The field may be incomplete or damaged.
+
+#### "This linked Zotero citation item was not found in the selected local Zotero libraries."
+
+The exact item key embedded in the Word citation was not found in either
+approved library. Before adding this comment, the checker also searches
+the selected libraries for an item with the same normalized embedded
+title.
+
+This comment therefore means that neither:
+
+- the embedded Zotero item key, nor
+- an exact normalized title match
+
+was found in the two selected libraries.
+
+Possible causes include:
+
+- the original Zotero item was deleted, replaced, merged, or substantially modified
+- the citation was copied from another document or library
+- the relevant group library is not fully synced
+- the wrong second group library was selected
+- the selected-library copy has a materially different title
+
+#### "Citation item comes from unexpected Zotero library."
+
+The citation resolves to an item outside:
 
 - `WGI AR7 General`
 - the selected second group library
 
----
+This warning is mainly a safeguard. Bibliography and title matching are
+otherwise restricted to the two selected libraries.
+
+------------------------------------------------------------------------
 
 ### Bibliography Issues
 
-#### “This bibliography entry appears in the reference list but was not found as a linked in-text citation.”
+#### "This bibliography entry appears in the reference list but was not found as a linked in-text citation."
 
-The reference appears in the bibliography but was not found among linked Zotero citations.
+The checker matched the bibliography entry to a Zotero item, but could
+not connect it to any linked in-text citation using:
 
-The checker uses item keys and normalized titles. It also checks whether a bibliography entry contains a cited chapter or annex title when the same entry also contains a parent book or report title.
+- the Zotero item key
+- the normalized item title
+- another cited title contained within the same bibliography entry
 
+The final safeguard is important for chapters, annexes, glossary entries,
+and similar references that also contain a parent book or report title.
 
-#### “This reference has neither DOI nor URL in Zotero.”
+Title comparison normalizes:
 
-The Zotero item has no DOI and no URL.
+- HTML formatting tags
+- HTML entities such as `&thinsp;`
+- straight and curly quotation marks
+- Unicode hyphens and dashes
+- Unicode subscript digits such as `SO₂` and `SO2`
+- punctuation, capitalization, and spacing
 
-#### “This bibliography item comes from unexpected Zotero library.”
+A remaining comment may indicate that the original cited Zotero item was
+deleted or modified, or that the bibliography entry is genuinely not
+cited.
 
-The bibliography item belongs to a Zotero library that is not approved for this check.
+#### "This bibliography entry duplicates another entry in the reference list and matches the same Zotero item."
 
----
+The same normalized bibliography entry appears more than once and both
+copies match the same Zotero item key. The later occurrence receives the
+comment.
+
+#### "This bibliography entry has the same title as another entry but matches a different Zotero item."
+
+Two identical normalized bibliography entries have the same matched
+title but different Zotero item keys. This may indicate duplicate Zotero
+records in the selected libraries.
+
+The checker requires the normalized full bibliography entries to match,
+which reduces false duplicate warnings for different chapters that share
+the same parent book or report title.
+
+#### "This reference has neither DOI nor URL in Zotero."
+
+This comment is added only when all four checks are negative:
+
+- the matched Zotero item's DOI field is empty
+- the matched Zotero item's URL field is empty
+- the visible bibliography entry contains no DOI text
+- the visible bibliography entry contains no `http://` or `https://` URL
+
+A visible DOI or URL therefore prevents this comment even when the
+corresponding Zotero metadata fields are empty.
+
+------------------------------------------------------------------------
 
 ### Possible Manual Citation Issues
 
-#### “This appears to be a manually typed in-text citation.”
+#### "This appears to be a manually typed in-text citation."
 
-The checker found citation-like text that does not appear to be backed by a Zotero field.
+The checker found author–year citation-like text that does not overlap a
+valid or damaged Zotero-backed Word field.
 
 Example forms checked include:
 
@@ -176,10 +244,6 @@ Gong et al. (2020)
 Jenkins et al. (2022)
 Chen, W et al. (2002)
 Li and Paul (2026)
-```
-
-The tool adds a comment only.
-The comment asks the user to insert the citation using Zotero and update the reference list.
 
 ---
 ## Debug Log
