@@ -253,8 +253,6 @@ corresponding Zotero metadata fields are empty.
 The checker found author–year citation-like text that does not overlap a
 valid or damaged Zotero-backed Word field.
 
-<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations and update the reference list.</ins>
-
 Example forms checked include:
 
 ```text
@@ -263,6 +261,9 @@ Gong et al. (2020)
 Jenkins et al. (2022)
 Chen, W et al. (2002)
 Li and Paul (2026)
+```
+
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations and update the reference list.</ins>
 
 ---
 ### Debug Log
