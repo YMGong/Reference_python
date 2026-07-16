@@ -125,7 +125,7 @@ the citation using Zotero. Damaged Zotero fields are excluded from the
 manual-citation check, so they should receive this comment instead of a
 second "manually typed citation" comment.
 
-<ins>For this type of comment, we should try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 #### "This is a linked Zotero citation, but the checker could not read its Zotero item data."
 
@@ -133,10 +133,14 @@ The Word field looks like a Zotero citation, but its embedded citation
 data could not be parsed. The field may be damaged, incomplete, or
 partially copied from another document.
 
+<ins>For this type of comment, check if it is really an in-text citation. If not, delete the comment.</ins> 
+
 #### "The checker could not read the item key for one citation item."
 
 The Zotero field data was readable, but one citation item did not contain
 a usable Zotero item key. The field may be incomplete or damaged.
+
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 #### "This linked Zotero citation item was not found in the selected local Zotero libraries."
 
@@ -160,6 +164,8 @@ Possible causes include:
 - the wrong second group library was selected
 - the selected-library copy has a materially different title
 
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
+
 #### "Citation item comes from unexpected Zotero library."
 
 The citation resolves to an item outside:
@@ -169,6 +175,8 @@ The citation resolves to an item outside:
 
 This warning is mainly a safeguard. Bibliography and title matching are
 otherwise restricted to the two selected libraries.
+
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 ------------------------------------------------------------------------
 
@@ -199,11 +207,16 @@ A remaining comment may indicate that the original cited Zotero item was
 deleted or modified, or that the bibliography entry is genuinely not
 cited.
 
+<ins>For this type of comment, try to find out if an in-text citation corresponding to the bibliography really cannot be found in the text. If yes, delete the comment. Otherwise, delete the bibliography through the Zotero add-on.</ins>
+
 #### "This bibliography entry duplicates another entry in the reference list and matches the same Zotero item."
 
 The same normalized bibliography entry appears more than once and both
 copies match the same Zotero item key. The later occurrence receives the
 comment.
+
+<ins>For this type of comment, try to find out if it is true. If not true, delete the comment. Otherwise, delete the duplication through the Zotero add-on.</ins>
+
 
 #### "This bibliography entry has the same title as another entry but matches a different Zotero item."
 
@@ -214,6 +227,8 @@ records in the selected libraries.
 The checker requires the normalized full bibliography entries to match,
 which reduces false duplicate warnings for different chapters that share
 the same parent book or report title.
+
+<ins>For this type of comment, try to find out if it is true. If not true, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 #### "This reference has neither DOI nor URL in Zotero."
 
@@ -226,6 +241,8 @@ This comment is added only when all four checks are negative:
 
 A visible DOI or URL therefore prevents this comment even when the
 corresponding Zotero metadata fields are empty.
+
+<ins>For this type of comment, try to find out if the article can be found online. If not, try to find a Zotero entry (with an attached PDF) in the "Non-peer-reviewed literature" folder of the "WGI AR7 General" library. If an entry can be found, delete the comment. If not, reply to the comment with "Please provide the metadata and the PDF file of the article in the 'Non-peer-reviewed literature' folder."
 
 ------------------------------------------------------------------------
 
@@ -244,6 +261,8 @@ Gong et al. (2020)
 Jenkins et al. (2022)
 Chen, W et al. (2002)
 Li and Paul (2026)
+
+<ins>For this type of comment, try to find out if the in-text citations can still be found in the reference list. If yes, delete the comment. Otherwise, keep it for the reference PoCs to re-insert the in-text citations.</ins>
 
 ---
 ## Debug Log
