@@ -48,9 +48,11 @@ The checker reviews:
 1. Live Zotero in-text citations
 2. Zotero-generated bibliography entries
 3. Whether citations come from approved Zotero libraries
-4. Whether bibliography items are used in the text
-5. Whether bibliography items have a DOI or URL
-6. Possible manually typed in-text citations
+4. Broken in-text citations
+5. Whether bibliography items are used in the text
+6. Whether bibliography items have a DOI or URL
+7. Whether bibliography items are duplicated 
+8. Possible manually typed in-text citations
 
 ---
 
@@ -66,7 +68,7 @@ Items from the personal Zotero library or other group libraries are commented as
 ---
 ## Input file
 
-It is better to store the input file in a local folder instead of having it on a cloud storage such as OneDrive.
+It is better to store the input file in a local folder rather than in cloud storage such as OneDrive.
 
 ---
 ## Recommended Workflow
