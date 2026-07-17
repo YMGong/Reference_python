@@ -84,7 +84,8 @@ Before running the checker:
 10. Select the second Zotero group library.
 11. Select the Word document.
 12. Wait for the finishing message.
-13. Open `OriginalFile_checked.docx`.
+13. Open `OriginalFile_checked.docx` and double-check the comments.
+14. Make sure everything else was not changed compared to the original file. If not, replace the original file with the checked file and send it back to the reference PoCs to fix the issue if there are more than three valid comments. 
 
 Do not keep Zotero or the target Word document open while the checker runs.
 
