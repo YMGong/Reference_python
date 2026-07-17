@@ -105,6 +105,82 @@ def normalize_citation_component(text):
     return text.strip()
 
 
+
+def extract_bibliography_first_author(entry_text):
+    """Return a normalized first-author surname from a bibliography entry."""
+    text = html.unescape(entry_text or "")
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Bibliographies normally begin with "Surname, Initials...".
+    match = re.match(r"\s*([^,]+),", text)
+    if not match:
+        return ""
+
+    author = normalize_match_text(match.group(1))
+    return author.strip()
+
+
+def extract_bibliography_base_year(entry_text):
+    """Return the first publication year without an a/b/c suffix."""
+    match = re.search(r"\b((?:19|20)\d{2})[a-z]?\b", entry_text or "", re.I)
+    return match.group(1) if match else ""
+
+
+def bibliography_duplicate_identity(entry_text, matched_title):
+    """Build a duplicate identity from title, first author, and base year."""
+    return (
+        normalize_match_text(matched_title),
+        extract_bibliography_first_author(entry_text),
+        extract_bibliography_base_year(entry_text),
+    )
+
+
+def normalize_doi(value):
+    """Return a canonical DOI without prefixes, URLs, or trailing punctuation."""
+    value = html.unescape(value or "").strip().lower()
+    value = re.sub(r"^\s*(?:doi\s*:\s*)", "", value, flags=re.I)
+    value = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", value, flags=re.I)
+    value = value.strip(" \t\r\n.,;:)]}>")
+    match = re.search(r"\b10\.\d{4,9}/[^\s<>\"']+", value, re.I)
+    if not match:
+        return ""
+    return match.group(0).rstrip(".,;:)]}>")
+
+
+def extract_doi_from_entry(entry_text):
+    """Extract and normalize the first DOI visible in a bibliography entry."""
+    text = html.unescape(entry_text or "")
+    match = re.search(r"\b10\.\d{4,9}/[^\s<>\"']+", text, re.I)
+    return normalize_doi(match.group(0)) if match else ""
+
+
+def normalize_url(value):
+    """Return a conservative canonical URL for duplicate comparison."""
+    value = html.unescape(value or "").strip()
+    if not value:
+        return ""
+
+    # A DOI URL is treated as a DOI rather than as an ordinary URL.
+    if re.match(r"^https?://(?:dx\.)?doi\.org/", value, re.I):
+        return ""
+
+    value = value.rstrip(" \t\r\n.,;:)]}>")
+    value = re.sub(r"#.*$", "", value)
+    value = value.rstrip("/")
+    return value.lower()
+
+
+def extract_url_from_entry(entry_text):
+    """Extract and normalize the first non-DOI URL in a bibliography entry."""
+    text = html.unescape(entry_text or "")
+    for match in re.finditer(r"https?://[^\s<>\"']+", text, re.I):
+        candidate = normalize_url(match.group(0))
+        if candidate:
+            return candidate
+    return ""
+
+
 def range_text(word_range):
     try:
         return short_text(word_range.Text)
@@ -993,10 +1069,17 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
             bib_range = bibliography_field.Result
             paragraphs = bib_range.Paragraphs
 
-            # Duplicate checks use the normalized full bibliography entry as a
-            # safeguard against false positives from parent book/report titles.
-            seen_bibliography_keys = {}
-            seen_bibliography_titles = {}
+            # Duplicate checks use several independent signals:
+            # 1. normalized title + first author + base year,
+            # 2. normalized DOI,
+            # 3. normalized non-DOI URL.
+            #
+            # DOI and URL matches are reported as possible duplicates rather than
+            # definitive duplicates because distinct records can occasionally share
+            # a DOI or landing-page URL.
+            seen_bibliography_identities = {}
+            seen_bibliography_dois = {}
+            seen_bibliography_urls = {}
 
             for paragraph in paragraphs:
 
@@ -1013,6 +1096,96 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
 
                 if not p_text:
                     continue
+
+                entry_preview = short_text(entry_text, 100)
+
+                # Check DOI and URL duplicates directly from the visible
+                # bibliography text before attempting to match the entry to a
+                # Zotero item. This is essential because an entry may belong to
+                # an unselected library, have a missing Zotero title, or otherwise
+                # fail title matching while still visibly containing a duplicate DOI.
+                visible_doi = extract_doi_from_entry(entry_text)
+                visible_url = extract_url_from_entry(entry_text)
+
+                identifier_duplicate_reasons = []
+                identifier_previous_entries = []
+
+                if visible_doi:
+                    previous_doi_entry = seen_bibliography_dois.get(visible_doi)
+                    if previous_doi_entry:
+                        identifier_duplicate_reasons.append(
+                            f"same DOI ({visible_doi})"
+                        )
+                        identifier_previous_entries.append(previous_doi_entry)
+
+                if visible_url:
+                    previous_url_entry = seen_bibliography_urls.get(visible_url)
+                    if previous_url_entry:
+                        identifier_duplicate_reasons.append(
+                            f"same URL ({visible_url})"
+                        )
+                        identifier_previous_entries.append(previous_url_entry)
+
+                identifier_duplicate_added = False
+
+                if identifier_duplicate_reasons:
+                    previous_entry = identifier_previous_entries[0]
+
+                    log_comment_context(
+                        "Possible duplicate bibliography entry: shared DOI or URL",
+                        {
+                            "entry": entry_preview,
+                            "visible_doi": visible_doi,
+                            "visible_url": visible_url,
+                            "duplicate_reasons": identifier_duplicate_reasons,
+                            "first_entry": previous_entry["entry_preview"],
+                            "first_key": previous_entry.get("key", ""),
+                            "warning": (
+                                "A shared DOI or URL is strong evidence of duplication, "
+                                "but some distinct records may legitimately share one."
+                            ),
+                            "checked_before_zotero_title_matching": True,
+                        },
+                    )
+
+                    add_comment(
+                        doc,
+                        anchor,
+                        "Issue: This bibliography entry may duplicate another entry.\n\n"
+                        "Matching evidence:\n- "
+                        + "\n- ".join(identifier_duplicate_reasons)
+                        + "\n\n"
+                        + "Warning: A shared DOI or URL is strong evidence of duplication, "
+                        "but some distinct articles, chapters, corrections, datasets, or "
+                        "publisher records may legitimately share the same DOI or landing-page "
+                        "URL. Please verify the records before deleting or merging them.\n\n"
+                        + f"Entry: {entry_preview}"
+                    )
+                    identifier_duplicate_added = True
+
+                # Record visible identifiers even when this entry cannot later be
+                # matched to a Zotero item.
+                identifier_entry_record = {
+                    "key": "",
+                    "entry_preview": entry_preview,
+                    "entry_text": p_text,
+                    "matched_title": "",
+                    "first_author": extract_bibliography_first_author(entry_text),
+                    "base_year": extract_bibliography_base_year(entry_text),
+                    "doi": visible_doi,
+                    "url": visible_url,
+                }
+
+                if visible_doi:
+                    seen_bibliography_dois.setdefault(
+                        visible_doi,
+                        identifier_entry_record,
+                    )
+                if visible_url:
+                    seen_bibliography_urls.setdefault(
+                        visible_url,
+                        identifier_entry_record,
+                    )
 
                 matched_key = None
                 matched_score = 0
@@ -1037,66 +1210,112 @@ def process_document(input_path, checked_output_path, db_path, selected_library,
                     continue
 
                 meta = items[matched_key]
-                entry_preview = short_text(entry_text, 100)
                 matched_title = normalize_match_text(meta.get("title", ""))
 
-                previous_key_entry = seen_bibliography_keys.get(matched_key)
-                if previous_key_entry and previous_key_entry["entry_text"] == p_text:
-                    log_comment_context("Duplicate bibliography entry: same Zotero item", {
-                        "entry": entry_preview,
-                        "matched_key": matched_key,
-                        "matched_title": matched_title,
-                        "first_entry": previous_key_entry["entry_preview"],
-                    })
-                    add_comment(
-                        doc,
-                        anchor,
-                        "Issue: This bibliography entry duplicates another entry in the "
-                        "reference list and matches the same Zotero item.\n\n"
-                        f"Entry: {entry_preview}"
-                    )
-                else:
-                    seen_bibliography_keys.setdefault(
-                        matched_key,
-                        {
-                            "entry_text": p_text,
-                            "entry_preview": entry_preview,
-                        },
-                    )
+                duplicate_identity = bibliography_duplicate_identity(
+                    entry_text,
+                    matched_title,
+                )
+                duplicate_title, duplicate_first_author, duplicate_year = duplicate_identity
 
-                previous_title_entry = seen_bibliography_titles.get(matched_title)
-                if (
-                    matched_title
-                    and previous_title_entry
-                    and previous_title_entry["key"] != matched_key
-                    and previous_title_entry["entry_text"] == p_text
-                ):
+                # Prefer Zotero metadata, but fall back to identifiers visibly
+                # present in the formatted bibliography entry.
+                normalized_doi = (
+                    visible_doi
+                    or normalize_doi(meta.get("DOI", ""))
+                )
+                normalized_url = (
+                    visible_url
+                    or normalize_url(meta.get("url", ""))
+                )
+
+                duplicate_reasons = []
+                previous_candidates = []
+
+                if all(duplicate_identity):
+                    previous_identity_entry = seen_bibliography_identities.get(
+                        duplicate_identity
+                    )
+                    if previous_identity_entry:
+                        duplicate_reasons.append(
+                            "same normalized title, first author, and base publication year"
+                        )
+                        previous_candidates.append(previous_identity_entry)
+
+
+                # Add only one duplicate comment per entry, even when several
+                # independent signals point to the same earlier reference.
+                if duplicate_reasons and not identifier_duplicate_added:
+                    previous_entry = previous_candidates[0]
+                    same_zotero_item = previous_entry["key"] == matched_key
+
                     log_comment_context(
-                        "Duplicate bibliography entry: same title, different Zotero items",
+                        "Possible duplicate bibliography entry",
                         {
                             "entry": entry_preview,
                             "matched_title": matched_title,
+                            "first_author": duplicate_first_author,
+                            "base_year": duplicate_year,
+                            "normalized_doi": normalized_doi,
+                            "normalized_url": normalized_url,
+                            "duplicate_reasons": duplicate_reasons,
                             "current_key": matched_key,
-                            "first_key": previous_title_entry["key"],
-                            "first_entry": previous_title_entry["entry_preview"],
+                            "first_key": previous_entry["key"],
+                            "first_entry": previous_entry["entry_preview"],
+                            "same_zotero_item": same_zotero_item,
+                            "warning": (
+                                "A shared DOI or URL is strong evidence of duplication, "
+                                "but some distinct records may legitimately share one."
+                            ),
                         },
                     )
+
                     add_comment(
                         doc,
                         anchor,
-                        "Issue: This bibliography entry has the same title as another "
-                        "entry but matches a different Zotero item. This may indicate "
-                        "duplicate Zotero records.\n\n"
-                        f"Entry: {entry_preview}"
+                        "Issue: This bibliography entry may duplicate another entry.\n\n"
+                        "Matching evidence:\n- "
+                        + "\n- ".join(duplicate_reasons)
+                        + "\n\n"
+                        + (
+                            "Both entries match the same Zotero item.\n\n"
+                            if same_zotero_item
+                            else
+                            "The entries match different Zotero items, which may indicate "
+                            "duplicate Zotero records.\n\n"
+                        )
+                        + "Warning: A shared DOI or URL is strong evidence of duplication, "
+                        "but some distinct articles, chapters, corrections, datasets, or "
+                        "publisher records may legitimately share the same DOI or landing-page "
+                        "URL. Please verify the records before deleting or merging them.\n\n"
+                        + f"Entry: {entry_preview}"
                     )
-                elif matched_title:
-                    seen_bibliography_titles.setdefault(
-                        matched_title,
-                        {
-                            "key": matched_key,
-                            "entry_text": p_text,
-                            "entry_preview": entry_preview,
-                        },
+
+                current_entry_record = {
+                    "key": matched_key,
+                    "entry_preview": entry_preview,
+                    "entry_text": p_text,
+                    "matched_title": matched_title,
+                    "first_author": duplicate_first_author,
+                    "base_year": duplicate_year,
+                    "doi": normalized_doi,
+                    "url": normalized_url,
+                }
+
+                if all(duplicate_identity):
+                    seen_bibliography_identities.setdefault(
+                        duplicate_identity,
+                        current_entry_record,
+                    )
+                if normalized_doi:
+                    seen_bibliography_dois.setdefault(
+                        normalized_doi,
+                        current_entry_record,
+                    )
+                if normalized_url:
+                    seen_bibliography_urls.setdefault(
+                        normalized_url,
+                        current_entry_record,
                     )
 
                 # Safety check: even if matched_key picked the parent book/report title,
