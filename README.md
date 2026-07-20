@@ -76,16 +76,16 @@ Before running the checker:
 1. Open Zotero.
 2. Sync required Zotero group libraries completely.
 3. Download and install the "intergovernmental-panel-on-climate-change-v6.csl" from https://github.com/IPCC-AR7-WG1/referencing_zotero.
-5. Close Zotero.
-6. Download the draft text to a local drive (not in the Cloud).
-7. Check if the "intergovernmental panel on climate change v6" citation style is used. If not, change it to this citation style and change the font size back to 10. 
-8. Save and close all Microsoft Word windows.
-9. Run `ReferenceChecker.exe`.
-10. Select the second Zotero group library.
-11. Select the Word document.
-12. Wait for the finishing message.
-13. Open `OriginalFile_checked.docx` and double-check the comments.
-14. Make sure everything else was not changed compared to the original file. If not, replace the original file with the checked file and send it back to the reference PoCs to fix the issue if there are more than three valid comments. 
+4. Download the draft text to a local drive (not in the Cloud).
+5. Check if the "intergovernmental panel on climate change v6" citation style is used. If not, change it to this citation style and change the font size back to 10.
+6. Save and close all Microsoft Word windows.
+7. Close Zotero.
+8.  Run `ReferenceChecker.exe`.
+9.   Select the second Zotero group library.
+10. Select the Word document.
+11. Wait for the finishing message.
+12. Open `OriginalFile_checked.docx` and double-check the comments.
+13. Make sure everything else was not changed compared to the original file. If not, replace the original file with the checked file and send it back to the reference PoCs to fix the issue if there are more than three valid comments. 
 
 Do not keep Zotero or the target Word document open while the checker runs.
 
