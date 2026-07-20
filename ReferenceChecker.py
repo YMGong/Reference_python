@@ -198,8 +198,12 @@ def paragraph_anchor_range(paragraph):
     return r
 
 
-def ranges_overlap(start1, end1, start2, end2):
-    return start1 < end2 and start2 < end1
+def ranges_overlap(start1, end1, start2, end2, tolerance=1):
+    """Return True when two Word ranges overlap or touch within tolerance."""
+    return (
+        start1 < end2 + tolerance
+        and start2 < end1 + tolerance
+    )
 
 
 # -----------------------------
@@ -707,25 +711,69 @@ def close_word_safely(word, doc=None):
 
 
 def build_zotero_result_ranges(doc):
+    """Collect current visible result ranges for valid and damaged Zotero fields.
+
+    Each entry also stores the visible field text. The text is used as a second,
+    independent safeguard because Python string offsets in paragraph.Range.Text
+    do not always map perfectly to Word story positions around complex fields.
+    """
     ranges = []
+    seen = set()
 
-    for field in doc.Fields:
+    # doc.Fields normally covers the main document. MainStoryRange.Fields is
+    # included as an additional route because Word can expose complex fields
+    # differently depending on document structure.
+    field_collections = []
+
+    try:
+        field_collections.append(doc.Fields)
+    except Exception:
+        pass
+
+    try:
+        field_collections.append(doc.StoryRanges(1).Fields)  # wdMainTextStory
+    except Exception:
+        pass
+
+    for collection in field_collections:
         try:
-            code = field.Code.Text
-            code_upper = code.upper()
+            count = collection.Count
+        except Exception:
+            continue
 
-            # Include valid and damaged Zotero fields so their visible text is
-            # not later misclassified as a manually typed citation.
-            if "ADDIN ZOTERO" not in code_upper:
+        for index in range(1, count + 1):
+            try:
+                field = collection.Item(index)
+                code = field.Code.Text or ""
+
+                # Include valid and damaged Zotero fields so their visible text
+                # is never later classified as a manually typed citation.
+                if "ADDIN ZOTERO" not in code.upper():
+                    continue
+
+                result = field.Result.Duplicate
+                start = result.Start
+                end = result.End
+                result_text = result.Text or ""
+                identity = (start, end, result_text)
+
+                if identity in seen:
+                    continue
+
+                seen.add(identity)
+                ranges.append({
+                    "start": start,
+                    "end": end,
+                    "text": result_text,
+                    "code": code,
+                })
+
+            except Exception:
                 continue
 
-            ranges.append((field.Result.Start, field.Result.End))
-
-        except Exception:
-            pass
-
-    ranges.sort(key=lambda x: x[0])
+    ranges.sort(key=lambda item: item["start"])
     return ranges
+
 
 def candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
     try:
@@ -734,13 +782,118 @@ def candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
     except Exception:
         return False
 
-    # Ranges are sorted. Break once we have passed this candidate.
-    for z_start, z_end in zotero_ranges:
-        if z_start >= end:
+    # Ranges are sorted. Keep the tolerance in the early-exit condition too.
+    for item in zotero_ranges:
+        z_start = item["start"] if isinstance(item, dict) else item[0]
+        z_end = item["end"] if isinstance(item, dict) else item[1]
+
+        if z_start > end + 1:
+            break
+
+        if ranges_overlap(start, end, z_start, z_end):
+            return True
+
+    return False
+
+
+def zotero_visible_spans_in_paragraph(paragraph_text, paragraph_range, zotero_ranges):
+    """Return visible-text spans occupied by Zotero fields in one paragraph.
+
+    This protects against a Word quirk: regex offsets are offsets in the visible
+    paragraph string, while Word Range.Start/End are story coordinates. Around
+    complex or long fields, those coordinate systems can differ. Matching the
+    field's visible Result.Text inside paragraph_text avoids that mismatch.
+    """
+    paragraph_start = paragraph_range.Start
+    paragraph_end = paragraph_range.End
+    relevant = []
+
+    for item in zotero_ranges:
+        z_start = item["start"] if isinstance(item, dict) else item[0]
+        z_end = item["end"] if isinstance(item, dict) else item[1]
+
+        if z_start >= paragraph_end:
+            break
+        if z_end <= paragraph_start:
+            continue
+
+        field_text = item.get("text", "") if isinstance(item, dict) else ""
+        if field_text:
+            relevant.append((z_start, field_text))
+
+    if not relevant:
+        return []
+
+    relevant.sort(key=lambda pair: pair[0])
+    spans = []
+    search_from = 0
+
+    for _, field_text in relevant:
+        # Field results may include paragraph/cell markers at their edges.
+        candidates = [field_text]
+        trimmed = field_text.strip("\r\n\x07")
+        if trimmed and trimmed != field_text:
+            candidates.append(trimmed)
+
+        found_start = -1
+        found_text = ""
+
+        for candidate in candidates:
+            found_start = paragraph_text.find(candidate, search_from)
+            if found_start != -1:
+                found_text = candidate
+                break
+
+        # If sequential searching failed (for example, repeated identical
+        # citations), retry from the beginning and avoid already-used spans.
+        if found_start == -1:
+            for candidate in candidates:
+                probe = 0
+                while True:
+                    pos = paragraph_text.find(candidate, probe)
+                    if pos == -1:
+                        break
+                    end = pos + len(candidate)
+                    if not any(ranges_overlap(pos, end, s, e, tolerance=0) for s, e in spans):
+                        found_start = pos
+                        found_text = candidate
+                        break
+                    probe = pos + 1
+                if found_start != -1:
+                    break
+
+        if found_start == -1:
+            continue
+
+        found_end = found_start + len(found_text)
+        spans.append((found_start, found_end))
+        search_from = found_end
+
+    spans.sort(key=lambda pair: pair[0])
+    return spans
+
+
+def regex_match_overlaps_visible_zotero_field(match, visible_zotero_spans):
+    start = match.start()
+    end = match.end()
+
+    for z_start, z_end in visible_zotero_spans:
+        if z_start > end + 1:
             break
         if ranges_overlap(start, end, z_start, z_end):
             return True
+
     return False
+
+
+def range_from_regex_match(doc, paragraph_range, match):
+    """Build the exact Word range represented by a regex match in a paragraph."""
+    try:
+        start = paragraph_range.Start + match.start()
+        end = paragraph_range.Start + match.end()
+        return doc.Range(Start=start, End=end)
+    except Exception:
+        return None
 
 
 def find_visible_range_in_paragraph(paragraph_range, visible_text, preferred_start=None):
@@ -803,6 +956,11 @@ def check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=Non
             continue
 
         manual_candidates = []
+        visible_zotero_spans = zotero_visible_spans_in_paragraph(
+            paragraph_text,
+            paragraph_range,
+            zotero_ranges,
+        )
 
         for pattern in patterns:
             for match in pattern.finditer(paragraph_text):
@@ -811,14 +969,33 @@ def check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=Non
                 if should_ignore_apparent_citation(citation_text):
                     continue
 
-                candidate_range = find_visible_range_in_paragraph(
+                # First compare visible paragraph offsets with the visible
+                # results of Zotero fields. This remains reliable even when Word
+                # story coordinates and Python string offsets differ around a
+                # long or internally split field code.
+                if regex_match_overlaps_visible_zotero_field(
+                    match,
+                    visible_zotero_spans,
+                ):
+                    continue
+
+                # Keep the numeric Word-range test as an independent fallback.
+                candidate_range = range_from_regex_match(
+                    doc,
                     paragraph_range,
-                    citation_text,
-                    preferred_start=match.start()
+                    match,
                 )
 
-                # If the visible citation occurrence is backed by a Zotero field, it is linked, not manual.
-                if candidate_overlaps_zotero_range(candidate_range, zotero_ranges):
+                # Any citation-like text backed by any Zotero field is linked,
+                # not manual. This includes valid, damaged, unreadable, missing,
+                # or out-of-library Zotero citation fields.
+                if (
+                    candidate_range is not None
+                    and candidate_overlaps_zotero_range(
+                        candidate_range,
+                        zotero_ranges,
+                    )
+                ):
                     continue
 
                 comps = split_author_year_citation(citation_text)
@@ -844,6 +1021,33 @@ def check_manual_citations_in_main_doc(doc, zotero_ranges, progress_callback=Non
                 continue
 
             seen.add(unique_id)
+
+            full_candidate_range = doc.Range(
+                Start=paragraph_range.Start + item["match_start"],
+                End=paragraph_range.Start + item["match_end"],
+            )
+
+            # Defensive second check: never add a manual-citation comment when
+            # the full citation overlaps any Zotero field result. Check both the
+            # visible paragraph offsets and Word's numeric story coordinates.
+            candidate_visible_start = item["match_start"]
+            candidate_visible_end = item["match_end"]
+            if any(
+                ranges_overlap(
+                    candidate_visible_start,
+                    candidate_visible_end,
+                    z_start,
+                    z_end,
+                )
+                for z_start, z_end in visible_zotero_spans
+            ):
+                continue
+
+            if candidate_overlaps_zotero_range(
+                full_candidate_range,
+                zotero_ranges,
+            ):
+                continue
 
             target_range = find_component_range_in_paragraph(
                 paragraph_range,
